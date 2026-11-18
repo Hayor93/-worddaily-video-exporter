@@ -28,7 +28,7 @@ internal enum class VideoOrientation(val wireValue: String) {
 internal object VideoDimensions {
     fun displayed(width: Int, height: Int, rotationDegrees: Int): DisplayDimensions {
         require(width > 0 && height > 0) { "Video dimensions must be positive." }
-        val rotation = Math.floorMod(rotationDegrees, 360)
+        val rotation = ((rotationDegrees % 360) + 360) % 360
         require(rotation % 90 == 0) { "Unsupported video rotation: $rotationDegrees." }
         return if (rotation == 90 || rotation == 270) {
             DisplayDimensions(height, width)
