@@ -23,7 +23,8 @@ internal class MovingWatermark(private val logo: Bitmap, private val username: S
         super.configure(videoSize)
         // Bitmap pixel dimensions are in the video's displayed coordinate space.
         val shortSide = min(videoSize.width, videoSize.height).toFloat()
-        val width = (videoSize.width * 0.36f).roundToInt().coerceAtLeast(1)
+        // Size against the short side so landscape exports do not get an oversized banner.
+        val width = (shortSide * 0.43f).roundToInt().coerceAtLeast(1)
         val height = (shortSide * 0.085f).roundToInt().coerceAtLeast(1)
         val padding = height * 0.12f
         val icon = height - 2 * padding
@@ -40,16 +41,23 @@ internal class MovingWatermark(private val logo: Bitmap, private val username: S
                 padding + (icon + lw) / 2, (height + lh) / 2), paint)
         val x = padding * 2 + icon
         val available = (width - x - padding).coerceAtLeast(1f)
+        // Three readable lines beside the logo: brand, creator and official website.
         paint.color = Color.WHITE
         paint.typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
-        paint.textSize = height * 0.30f
+        paint.textSize = height * 0.25f
         canvas.drawText(TextUtils.ellipsize("WordDaily", android.text.TextPaint(paint), available,
-            TextUtils.TruncateAt.END).toString(), x, height * 0.44f, paint)
+            TextUtils.TruncateAt.END).toString(), x, height * 0.31f, paint)
+
         paint.typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL)
-        paint.textSize = height * 0.27f
+        paint.textSize = height * 0.22f
         val label = "@" + username.removePrefix("@").take(64)
         canvas.drawText(TextUtils.ellipsize(label, android.text.TextPaint(paint), available,
-            TextUtils.TruncateAt.END).toString(), x, height * 0.80f, paint)
+            TextUtils.TruncateAt.END).toString(), x, height * 0.57f, paint)
+
+        paint.color = Color.rgb(255, 211, 128)
+        paint.textSize = height * 0.19f
+        canvas.drawText(TextUtils.ellipsize("worddailyapp.com", android.text.TextPaint(paint), available,
+            TextUtils.TruncateAt.END).toString(), x, height * 0.82f, paint)
         card?.recycle()
         card = bitmap
     }
