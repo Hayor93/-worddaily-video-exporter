@@ -69,6 +69,7 @@ internal class MovingWatermark(private val logo: Bitmap, private val username: S
         return StaticOverlaySettings.Builder()
             .setBackgroundFrameAnchor(x * 0.94f, y * 0.94f)
             .setOverlayFrameAnchor(x, y)
+            .setAlphaScale(CornerSchedule.alphaScale(presentationTimeUs))
             .build()
     }
 
