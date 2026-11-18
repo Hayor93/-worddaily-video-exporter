@@ -11,8 +11,10 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.OverlayEffect
+import androidx.media3.effect.Presentation
 import androidx.media3.transformer.Composition
 import androidx.media3.transformer.EditedMediaItem
+import androidx.media3.transformer.EditedMediaItemSequence
 import androidx.media3.transformer.Effects
 import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.ExportResult
@@ -39,7 +41,15 @@ class WorddailyVideoExporterPlugin : FlutterPlugin, MethodChannel.MethodCallHand
         var transformer: Transformer? = null
         var progress: Runnable? = null
     }
-    private data class Prepared(val input: File, val output: File, val staging: File, val logo: Bitmap)
+    private data class VideoMetadata(val dimensions: DisplayDimensions, val hasAudio: Boolean)
+    private data class Prepared(
+        val input: File,
+        val outro: File,
+        val output: File,
+        val staging: File,
+        val logo: Bitmap,
+        val dimensions: DisplayDimensions
+    )
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         context = binding.applicationContext
@@ -56,11 +66,12 @@ class WorddailyVideoExporterPlugin : FlutterPlugin, MethodChannel.MethodCallHand
                 val id = call.argument<String>("id")
                 val input = call.argument<String>("inputPath")
                 val logo = call.argument<String>("logoPath")
+                val outro = call.argument<String>("outroPath")
                 val output = call.argument<String>("outputPath")
                 val username = call.argument<String>("creatorUsername")?.trim()
                 if (id.isNullOrBlank() || input.isNullOrBlank() || logo.isNullOrBlank() ||
-                    output.isNullOrBlank() || username.isNullOrBlank()) {
-                    result.error("invalid_argument", "Local video, logo, username and output path are required.", null)
+                    outro.isNullOrBlank() || output.isNullOrBlank() || username.isNullOrBlank()) {
+                    result.error("invalid_argument", "Local video, logo, outro, username and output path are required.", null)
                     return
                 }
                 val current = Job(id)
@@ -70,7 +81,7 @@ class WorddailyVideoExporterPlugin : FlutterPlugin, MethodChannel.MethodCallHand
                 // File/metadata/bitmap IO stays off the UI thread; Transformer stays on main.
                 executor.execute {
                     try {
-                        val prepared = prepare(input, logo, output)
+                        val prepared = prepare(input, logo, outro, output)
                         handler.post {
                             if (job !== current) {
                                 prepared.logo.recycle(); prepared.staging.delete(); prepared.output.delete()
@@ -87,6 +98,26 @@ class WorddailyVideoExporterPlugin : FlutterPlugin, MethodChannel.MethodCallHand
                     }
                 }
             }
+            "getVideoOrientation" -> {
+                val input = call.argument<String>("inputPath")
+                if (input.isNullOrBlank()) {
+                    result.error("invalid_argument", "A local source video is required.", null)
+                    return
+                }
+                // Metadata IO must not block Flutter's platform thread.
+                executor.execute {
+                    try {
+                        val file = File(input).canonicalFile
+                        require(file.isFile && file.canRead()) { "Input video is not a readable local file." }
+                        val orientation = readVideoMetadata(file).dimensions.orientation.wireValue
+                        handler.post { result.success(orientation) }
+                    } catch (error: Exception) {
+                        handler.post {
+                            result.error("invalid_input", error.message ?: "Could not inspect video.", null)
+                        }
+                    }
+                }
+            }
             "cancel" -> {
                 val current = job
                 if (current != null && call.argument<String>("id") == current.id) {
@@ -99,31 +130,67 @@ class WorddailyVideoExporterPlugin : FlutterPlugin, MethodChannel.MethodCallHand
         }
     }
 
-    private fun prepare(inputPath: String, logoPath: String, outputPath: String): Prepared {
+    private fun readVideoMetadata(file: File): VideoMetadata {
+        val metadata = MediaMetadataRetriever()
+        try {
+            metadata.setDataSource(file.absolutePath)
+            require(metadata.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_VIDEO) == "yes") {
+                "Video file has no video track."
+            }
+            val width = metadata.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
+                ?.toIntOrNull() ?: 0
+            val height = metadata.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
+                ?.toIntOrNull() ?: 0
+            val rotation = metadata.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)
+                ?.toIntOrNull() ?: 0
+            val dimensions = VideoDimensions.displayed(width, height, rotation)
+            val hasAudio = metadata.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO) == "yes"
+            return VideoMetadata(dimensions, hasAudio)
+        } finally {
+            metadata.release()
+        }
+    }
+
+    private fun prepare(inputPath: String, logoPath: String, outroPath: String, outputPath: String): Prepared {
         val input = File(inputPath).canonicalFile
         val logo = File(logoPath).canonicalFile
+        val outro = File(outroPath).canonicalFile
         val output = File(outputPath).canonicalFile
         require(input.isFile && input.canRead()) { "Input video is not a readable local file." }
         require(logo.isFile && logo.canRead()) { "Logo is not a readable PNG, JPEG or WebP file." }
-        require(output != input && output != logo) { "Output must not replace an input file." }
+        require(outro.isFile && outro.canRead()) { "Outro is not a readable local MP4 file." }
+        require(outro.extension.equals("mp4", ignoreCase = true)) { "Outro must be an MP4 file." }
+        require(outro != input && outro != logo) { "Outro must be separate from the source and logo." }
+        require(output != input && output != logo && output != outro) {
+            "Output must not replace an input file."
+        }
         require(output.extension.equals("mp4", ignoreCase = true)) { "Output must end in .mp4." }
         val parent = output.parentFile
-        require(parent != null && parent.isDirectory && parent.canWrite()) { "Output folder must exist and be writable." }
-        val metadata = MediaMetadataRetriever()
-        try {
-            metadata.setDataSource(input.absolutePath)
-            require(metadata.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_VIDEO) == "yes") {
-                "Input does not contain a video track."
-            }
-        } finally { metadata.release() }
+        require(parent != null && parent.isDirectory && parent.canWrite()) {
+            "Output folder must exist and be writable."
+        }
+
+        val sourceMetadata = readVideoMetadata(input)
+        val outroMetadata = readVideoMetadata(outro)
+        require(outroMetadata.hasAudio) { "Approved outro must contain its sound track." }
+        require(sourceMetadata.dimensions.orientation == outroMetadata.dimensions.orientation) {
+            "Wrong outro orientation: expected ${sourceMetadata.dimensions.orientation.wireValue}, " +
+                "received ${outroMetadata.dimensions.orientation.wireValue}."
+        }
+
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(logo.path, bounds)
-        require(bounds.outWidth > 0 && bounds.outHeight > 0) { "Logo must be a supported raster image (not SVG)." }
+        require(bounds.outWidth > 0 && bounds.outHeight > 0) {
+            "Logo must be a supported raster image (not SVG)."
+        }
         val options = BitmapFactory.Options().apply { inSampleSize = 1 }
-        while (bounds.outWidth / options.inSampleSize > 512 || bounds.outHeight / options.inSampleSize > 512) {
+        while (bounds.outWidth / options.inSampleSize > 512 ||
+            bounds.outHeight / options.inSampleSize > 512) {
             options.inSampleSize *= 2
         }
-        val bitmap = requireNotNull(BitmapFactory.decodeFile(logo.path, options)) { "Could not decode logo." }
+        val bitmap = requireNotNull(BitmapFactory.decodeFile(logo.path, options)) {
+            "Could not decode logo."
+        }
         var reserved = false
         var staging: File? = null
         try {
@@ -131,9 +198,10 @@ class WorddailyVideoExporterPlugin : FlutterPlugin, MethodChannel.MethodCallHand
             reserved = true
             staging = File.createTempFile(".worddaily-export-", ".mp4", parent)
             check(staging.delete()) { "Could not prepare output." }
-            return Prepared(input, output, staging, bitmap)
+            return Prepared(input, outro, output, staging, bitmap, sourceMetadata.dimensions)
         } catch (error: Exception) {
-            bitmap.recycle(); staging?.delete()
+            bitmap.recycle()
+            staging?.delete()
             if (reserved) output.delete()
             throw error
         }
@@ -142,9 +210,25 @@ class WorddailyVideoExporterPlugin : FlutterPlugin, MethodChannel.MethodCallHand
     private fun start(current: Job, files: Prepared, username: String) {
         try {
             val overlay = MovingWatermark(files.logo, username)
-            val edited = EditedMediaItem.Builder(MediaItem.fromUri(Uri.fromFile(files.input)))
+            // Effects are scoped to the original video. The approved outro stays clean.
+            val sourceItem = EditedMediaItem.Builder(MediaItem.fromUri(Uri.fromFile(files.input)))
                 .setEffects(Effects(emptyList(), listOf(OverlayEffect(listOf<TextureOverlay>(overlay)))))
                 .build()
+            val outroItem = EditedMediaItem.Builder(MediaItem.fromUri(Uri.fromFile(files.outro)))
+                .setEffects(Effects(emptyList(), listOf(
+                    Presentation.createForWidthAndHeight(
+                        files.dimensions.width,
+                        files.dimensions.height,
+                        Presentation.LAYOUT_SCALE_TO_FIT
+                    )
+                )))
+                .build()
+            // Sequential items retain their own audio. Force a silent track if the
+            // original is muted so the outro's approved AAC sound is not discarded.
+            val sequence = EditedMediaItemSequence.Builder(sourceItem, outroItem)
+                .experimentalSetForceAudioTrack(true)
+                .build()
+            val composition = Composition.Builder(sequence).build()
             val transformer = Transformer.Builder(context)
                 .setLooper(Looper.getMainLooper())
                 .setVideoMimeType(MimeTypes.VIDEO_H264)
@@ -163,7 +247,7 @@ class WorddailyVideoExporterPlugin : FlutterPlugin, MethodChannel.MethodCallHand
                     }
                 }).build()
             current.transformer = transformer
-            transformer.start(edited, files.staging.absolutePath)
+            transformer.start(composition, files.staging.absolutePath)
             val progress = object : Runnable {
                 override fun run() {
                     if (job !== current) return
