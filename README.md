@@ -1,6 +1,6 @@
 # worddaily_video_exporter
 
-Android-only Flutter plugin using AndroidX Media3 Transformer 1.8.0 to embed a moving WordDaily watermark in exported MP4 videos. No outro or app integration is included.
+Android-only Flutter plugin using AndroidX Media3 Transformer 1.8.0 to embed a permanent, moving watermark in exported MP4 videos. The watermark displays the WordDaily logo, **WordDaily**, the creator's **@username**, and **worddailyapp.com**. It moves clockwise between video corners every six seconds of video time. The original input video remains unchanged. No outro or app integration is included.
 
 ## FlutterFlow Git dependency
 
