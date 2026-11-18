@@ -12,13 +12,14 @@ class WordDailyVideoExporter {
   static bool _listening = false;
 
   /// Inputs must be accessible local files, not asset names/content URIs/URLs.
-  /// Copy a bundled raster logo to an app-private file before calling.
+  /// Copy a bundled raster logo and the approved MP4 outro to local files first.
   /// [outputPath] must be an unused .mp4 path with an existing writable parent.
   /// Only one export per Flutter engine is supported at a time.
   static VideoExportTask exportMp4({
     required File inputVideo,
     required String creatorUsername,
     required File logo,
+    required File outroVideo,
     required String outputPath,
     void Function(VideoExportProgress)? onProgress,
     void Function(File)? onCompleted,
@@ -52,9 +53,39 @@ class WordDailyVideoExporter {
       'inputPath': inputVideo.absolute.path,
       'creatorUsername': creatorUsername.trim(),
       'logoPath': logo.absolute.path,
+      'outroPath': outroVideo.absolute.path,
       'outputPath': File(outputPath).absolute.path,
     }));
     return task;
+  }
+
+  /// Reads the source video's displayed orientation, including rotation metadata.
+  /// Call this before choosing which of the three approved outro URLs to download.
+  static Future<VideoOrientation> getVideoOrientation(File inputVideo) async {
+    try {
+      final value = await _channel.invokeMethod<String>(
+        'getVideoOrientation',
+        {'inputPath': inputVideo.absolute.path},
+      );
+      switch (value) {
+        case 'portrait':
+          return VideoOrientation.portrait;
+        case 'landscape':
+          return VideoOrientation.landscape;
+        case 'square':
+          return VideoOrientation.square;
+        default:
+          throw VideoExportException(
+            'invalid_orientation',
+            'Native exporter returned an unknown orientation: $value',
+          );
+      }
+    } on PlatformException catch (error) {
+      throw VideoExportException(
+        error.code,
+        error.message ?? 'Could not inspect source video.',
+      );
+    }
   }
 
   static Future<void> _start(
@@ -143,3 +174,6 @@ class VideoExportException implements Exception {
   @override
   String toString() => 'VideoExportException($code): $message';
 }
+
+/// Display orientation of the source video (after rotation metadata).
+enum VideoOrientation { portrait, landscape, square }
