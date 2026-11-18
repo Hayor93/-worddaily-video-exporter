@@ -2,7 +2,7 @@
 
 Android-only Flutter plugin built with **AndroidX Media3 Transformer 1.8.0**.
 
-The exporter creates **one MP4** from a source video and an approved 2-second branded outro. A permanent WordDaily watermark moves clockwise between the source video's four corners every six seconds, showing the official logo, **WordDaily**, **@creator**, and **worddailyapp.com**. The watermark is not drawn over the outro. The outro's approved audio plays after the source audio. The original video is never modified.
+The exporter creates **one MP4** from a source video and an approved 2-second branded outro. A permanent WordDaily watermark moves clockwise between the source video's four corners every six seconds, showing the official logo, **WordDaily**, **@creator**, and **worddailyapp.com**. The watermark stays stationary for most of each six-second interval, fades out for 0.2 seconds, changes corners while fully invisible, and fades in for 0.2 seconds. It never slides across the screen. The watermark is not drawn over the outro. The outro's approved audio plays after the source audio. The original video is never modified.
 
 ## FlutterFlow Git dependency
 
