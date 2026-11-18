@@ -1,6 +1,6 @@
 name: worddaily_video_exporter
-description: Android MP4 export with a permanent, moving WordDaily watermark.
-version: 0.1.0
+description: Android MP4 export with a moving WordDaily watermark and a branded audio outro.
+version: 0.2.0
 publish_to: none
 environment:
   sdk: '>=3.3.0 <4.0.0'
