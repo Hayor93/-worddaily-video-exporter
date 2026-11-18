@@ -20,7 +20,7 @@ class VideoOrientationTest {
 
     @Test fun nearSquareUsesSquareOutro() {
         assertEquals(VideoOrientation.SQUARE, VideoDimensions.displayed(1000, 950, 0).orientation)
-        assertEquals(VideoOrientation.PORTRAIT, VideoDimensions.displayed(1000, 890, 0).orientation)
+        assertEquals(VideoOrientation.PORTRAIT, VideoDimensions.displayed(890, 1000, 0).orientation)
         assertEquals(VideoOrientation.LANDSCAPE, VideoDimensions.displayed(1200, 1000, 0).orientation)
     }
 
