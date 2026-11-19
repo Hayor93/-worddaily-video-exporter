@@ -3,6 +3,7 @@ name: Verify Android exporter
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:

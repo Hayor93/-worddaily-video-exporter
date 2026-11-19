@@ -33,6 +33,7 @@ void main() {
         inputVideo: File('/private/input.mp4'),
         creatorUsername: 'creator',
         logo: File('/private/logo.png'),
+        outroVideo: File('/private/outro.mp4'),
         outputPath: '/private/output.mp4',
         onProgress: onProgress,
         onError: onError,
@@ -68,6 +69,7 @@ void main() {
       'inputPath': '/private/input.mp4',
       'creatorUsername': 'creator',
       'logoPath': '/private/logo.png',
+      'outroPath': '/private/outro.mp4',
       'outputPath': '/private/output.mp4',
     });
     await event(task, 'progress', {'progress': null});
@@ -77,6 +79,43 @@ void main() {
     expect(completed?.path, '/private/output.mp4');
     expect(progress, [null, 0.5]);
   });
+  test('inspects displayed source orientation before choosing an outro', () async {
+    for (final orientation in VideoOrientation.values) {
+      calls.clear();
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+        calls.add(call);
+        return orientation.name;
+      });
+      final found = await WordDailyVideoExporter.getVideoOrientation(
+          File('/private/input.mp4'));
+      expect(found, orientation);
+      expect(calls.single.method, 'getVideoOrientation');
+      expect(calls.single.arguments, {'inputPath': '/private/input.mp4'});
+    }
+  });
+
+  test('orientation lookup propagates native errors and rejects unknown values',
+      () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (_) async => 'diagonal');
+    await expectLater(
+      WordDailyVideoExporter.getVideoOrientation(File('/private/input.mp4')),
+      throwsA(isA<VideoExportException>()
+          .having((e) => e.code, 'code', 'invalid_orientation')),
+    );
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+            channel,
+            (_) async => throw PlatformException(
+                code: 'invalid_input', message: 'Unreadable file'));
+    await expectLater(
+      WordDailyVideoExporter.getVideoOrientation(File('/private/input.mp4')),
+      throwsA(isA<VideoExportException>()
+          .having((e) => e.code, 'code', 'invalid_input')),
+    );
+  });
+
   test('native start error reaches error callback and result', () async {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
@@ -129,6 +168,7 @@ void main() {
               inputVideo: File('/input.mp4'),
               creatorUsername: ' ',
               logo: File('/logo.png'),
+              outroVideo: File('/outro.mp4'),
               outputPath: '/output.mp4',
             ),
         throwsArgumentError);
